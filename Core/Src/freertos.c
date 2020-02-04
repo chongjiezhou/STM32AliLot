@@ -49,6 +49,7 @@
 
 /* USER CODE END Variables */
 osThreadId defaultTaskHandle;
+osThreadId TaskListHandle;
 
 /* Private function prototypes -----------------------------------------------*/
 /* USER CODE BEGIN FunctionPrototypes */
@@ -56,6 +57,7 @@ osThreadId defaultTaskHandle;
 /* USER CODE END FunctionPrototypes */
 
 void StartDefaultTask(void const * argument);
+void StartTaskList(void const * argument);
 
 extern void MX_FATFS_Init(void);
 extern void MX_LWIP_Init(void);
@@ -108,6 +110,10 @@ void MX_FREERTOS_Init(void) {
   osThreadDef(defaultTask, StartDefaultTask, osPriorityNormal, 0, 4096);
   defaultTaskHandle = osThreadCreate(osThread(defaultTask), NULL);
 
+  /* definition and creation of TaskList */
+  osThreadDef(TaskList, StartTaskList, osPriorityIdle, 0, 1024);
+  TaskListHandle = osThreadCreate(osThread(TaskList), NULL);
+
   /* USER CODE BEGIN RTOS_THREADS */
   /* add threads, ... */
   /* USER CODE END RTOS_THREADS */
@@ -130,6 +136,24 @@ void StartDefaultTask(void const * argument)
     osDelay(1);
   }
   /* USER CODE END StartDefaultTask */
+}
+
+/* USER CODE BEGIN Header_StartTaskList */
+/**
+* @brief Function implementing the TaskList thread.
+* @param argument: Not used
+* @retval None
+*/
+/* USER CODE END Header_StartTaskList */
+void StartTaskList(void const * argument)
+{
+  /* USER CODE BEGIN StartTaskList */
+  /* Infinite loop */
+  for(;;)
+  {
+    osDelay(1);
+  }
+  /* USER CODE END StartTaskList */
 }
 
 /* Private application code --------------------------------------------------*/
