@@ -28,8 +28,6 @@
 /* USER CODE BEGIN Includes */     
 #include "lwip.h"
 #include "api.h"
-#include "stm32746g_discovery.h"
-#include "stm32746g_discovery_lcd.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -52,7 +50,8 @@
 
 /* USER CODE END Variables */
 osThreadId defaultTaskHandle;
-osThreadId myTaskTcpHandle;
+osThreadId TaskListHandle;
+osThreadId TaskTcpEchoHandle;
 
 /* Private function prototypes -----------------------------------------------*/
 /* USER CODE BEGIN FunctionPrototypes */
@@ -60,8 +59,10 @@ void tcp_echoserver_init(void);
 /* USER CODE END FunctionPrototypes */
 
 void StartDefaultTask(void const * argument);
-void StartTaskTcp(void const * argument);
+void StartTaskList(void const * argument);
+void StartTaskTcpEcho(void const * argument);
 
+extern void MX_FATFS_Init(void);
 extern void MX_LWIP_Init(void);
 void MX_FREERTOS_Init(void); /* (MISRA C 2004 rule 8.1) */
 
@@ -113,9 +114,13 @@ void MX_FREERTOS_Init(void) {
   osThreadDef(defaultTask, StartDefaultTask, osPriorityNormal, 0, 4096);
   defaultTaskHandle = osThreadCreate(osThread(defaultTask), NULL);
 
-  /* definition and creation of myTaskTcp */
-  osThreadDef(myTaskTcp, StartTaskTcp, osPriorityIdle, 0, 1024);
-  myTaskTcpHandle = osThreadCreate(osThread(myTaskTcp), NULL);
+  /* definition and creation of TaskList */
+  osThreadDef(TaskList, StartTaskList, osPriorityNormal, 0, 1024);
+  TaskListHandle = osThreadCreate(osThread(TaskList), NULL);
+
+  /* definition and creation of TaskTcpEcho */
+  osThreadDef(TaskTcpEcho, StartTaskTcpEcho, osPriorityLow, 0, 1024);
+  TaskTcpEchoHandle = osThreadCreate(osThread(TaskTcpEcho), NULL);
 
   /* USER CODE BEGIN RTOS_THREADS */
 	/* add threads, ... */
@@ -134,10 +139,7 @@ void MX_FREERTOS_Init(void) {
 void StartDefaultTask(void const * argument)
 {
   /* USER CODE BEGIN StartDefaultTask */
-	while(1)
-	{
-		printf("Usart Test...\r\n");
-	}
+
 	/* Infinite loop */
 	for (;;)
 	{
@@ -146,59 +148,74 @@ void StartDefaultTask(void const * argument)
   /* USER CODE END StartDefaultTask */
 }
 
-/* USER CODE BEGIN Header_StartTaskTcp */
+/* USER CODE BEGIN Header_StartTaskList */
 /**
- * @brief Function implementing the myTaskTcp thread.
+ * @brief Function implementing the TaskList thread.
  * @param argument: Not used
  * @retval None
  */
-/* USER CODE END Header_StartTaskTcp */
-void StartTaskTcp(void const * argument)
+/* USER CODE END Header_StartTaskList */
+void StartTaskList(void const * argument)
 {
-  /* USER CODE BEGIN StartTaskTcp */
+  /* USER CODE BEGIN StartTaskList */
+	while (1)
+	{
+		osDelay(500);
+	}
+	/* Infinite loop */
+	for (;;)
+	{
+		osDelay(1);
+	}
+  /* USER CODE END StartTaskList */
+}
+
+/* USER CODE BEGIN Header_StartTaskTcpEcho */
+/**
+ * @brief Function implementing the TaskTcpEcho thread.
+ * @param argument: Not used
+ * @retval None
+ */
+/* USER CODE END Header_StartTaskTcpEcho */
+void StartTaskTcpEcho(void const * argument)
+{
+  /* USER CODE BEGIN StartTaskTcpEcho */
 	struct netconn *conn;
 	int ret;
 	ip4_addr_t ipaddr;
-	ip4_addr_t ipaddr2;
 	uint8_t DEST_IP_ADDR0 = 192;
 	uint8_t DEST_IP_ADDR1 = 168;
 	uint8_t DEST_IP_ADDR2 = 1;
-	uint8_t DEST_IP_ADDR3 = 11;
+	uint8_t DEST_IP_ADDR3 = 6;
 	uint16_t DEST_PORT = 8080;
-	uint16_t LOCAL_PORT;
+	uint16_t LOCAL_PORT = 5001;
 
 	uint8_t send_buf[] = "This is a TCP Client test...\r\n";
 
-	printf("目标IP地址为:%d.%d.%d.%d \t 端口号为:%d \n\n", DEST_IP_ADDR0, DEST_IP_ADDR1,
-			DEST_IP_ADDR2, DEST_IP_ADDR3, DEST_PORT);
+	printf("目标IP地址为:%d.%d.%d.%d \t 端口号为:%d \n\n",\
+			DEST_IP_ADDR0,DEST_IP_ADDR1,DEST_IP_ADDR2,DEST_IP_ADDR3,DEST_PORT);
 
-	while (1)
+	while(1)
 	{
 		conn = netconn_new(NETCONN_TCP);
-		if (conn == NULL)
+		if(conn == NULL)
 		{
 			printf("creat conn failed!\n");
 			osDelay(10);
 			continue;
 		}
-		IP4_ADDR(&ipaddr, DEST_IP_ADDR0, DEST_IP_ADDR1, DEST_IP_ADDR2,
-				DEST_IP_ADDR3);
-		ret = netconn_connect(conn, &ipaddr, DEST_PORT);
-
-		if (ret == -1)
+		IP4_ADDR(&ipaddr,DEST_IP_ADDR0,DEST_IP_ADDR1,DEST_IP_ADDR2,DEST_IP_ADDR3);
+		ret = netconn_connect(conn, &ipaddr, LOCAL_PORT);
+		if(ret == -1)
 		{
 			printf("Connect failed!\n");
 			netconn_close(conn);
 			continue;
 		}
 		printf("Connect successful!\n");
-		netconn_getaddr(conn, &ipaddr2, &LOCAL_PORT, 1);
-		printf("\r\nDHCP分配的IP为%d.%d.%d.%d\r\n", (ipaddr2.addr >> 0) & 0xff,
-				(ipaddr2.addr >> 8) & 0xff, (ipaddr2.addr >> 16) & 0xff,
-				(ipaddr2.addr >> 24) & 0xff);
-		while (1)
+		while(1)
 		{
-			ret = netconn_write(conn, send_buf, sizeof(send_buf), 0);
+			ret = netconn_write(conn,send_buf,sizeof(send_buf),0);
 			osDelay(1000);
 		}
 	}
@@ -207,38 +224,12 @@ void StartTaskTcp(void const * argument)
 	{
 		osDelay(1);
 	}
-  /* USER CODE END StartTaskTcp */
+  /* USER CODE END StartTaskTcpEcho */
 }
 
 /* Private application code --------------------------------------------------*/
 /* USER CODE BEGIN Application */
-/**
-  * @brief  Initializes the STM327546G-Discovery's LCD  resources.
-  * @param  None
-  * @retval None
-  */
-static void BSP_Config(void)
-{
-  /* Initialize the LCD */
-  BSP_LCD_Init();
 
-  /* Initialize the LCD Layers */
-  BSP_LCD_LayerDefaultInit(1, LCD_FB_START_ADDRESS);
-
-  /* Set LCD Foreground Layer  */
-  BSP_LCD_SelectLayer(1);
-
-  BSP_LCD_SetFont(&LCD_DEFAULT_FONT);
-
-  /* Initialize LCD Log module */
-  LCD_LOG_Init();
-
-  /* Show Header and Footer texts */
-  LCD_LOG_SetHeader((uint8_t *)"Webserver Application Netconn API");
-  LCD_LOG_SetFooter((uint8_t *)"STM32746G-DISCO board");
-
-  LCD_UsrLog ((char *)"  State: Ethernet Initialization ...\n");
-}
 /* USER CODE END Application */
 
 /************************ (C) COPYRIGHT STMicroelectronics *****END OF FILE****/

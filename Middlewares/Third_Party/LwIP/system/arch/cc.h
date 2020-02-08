@@ -62,7 +62,6 @@ typedef int sys_prot_t;
 #define PACK_STRUCT_STRUCT __attribute__ ((__packed__))
 #define PACK_STRUCT_END
 #define PACK_STRUCT_FIELD(x) x
-#define LWIP_DEBUG
 
 #elif defined (__CC_ARM)
 
