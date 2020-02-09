@@ -30,6 +30,8 @@
 #include "api.h"
 #include "stm32746g_discovery.h"
 #include "stm32746g_discovery_lcd.h"
+#include "lcd_log.h"
+#include "app_ethernet.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -56,7 +58,7 @@ osThreadId myTaskTcpHandle;
 
 /* Private function prototypes -----------------------------------------------*/
 /* USER CODE BEGIN FunctionPrototypes */
-void tcp_echoserver_init(void);
+static void BSP_Config(void);
 /* USER CODE END FunctionPrototypes */
 
 void StartDefaultTask(void const * argument);
@@ -134,10 +136,14 @@ void MX_FREERTOS_Init(void) {
 void StartDefaultTask(void const * argument)
 {
   /* USER CODE BEGIN StartDefaultTask */
-	while(1)
-	{
-		printf("Usart Test...\r\n");
-	}
+	BSP_Config();
+	User_notification(&gnetif);
+
+#ifdef USE_DHCP
+	osThreadDef(DHCP,DHCP_thread,osPriorityBelowNormal,0,256);
+	osThreadCreate(osThread(DHCP), &gnetif);
+#endif
+	osThreadTerminate(NULL);
 	/* Infinite loop */
 	for (;;)
 	{
@@ -163,13 +169,15 @@ void StartTaskTcp(void const * argument)
 	uint8_t DEST_IP_ADDR0 = 192;
 	uint8_t DEST_IP_ADDR1 = 168;
 	uint8_t DEST_IP_ADDR2 = 1;
-	uint8_t DEST_IP_ADDR3 = 11;
+	uint8_t DEST_IP_ADDR3 = 6;
 	uint16_t DEST_PORT = 8080;
 	uint16_t LOCAL_PORT;
 
 	uint8_t send_buf[] = "This is a TCP Client test...\r\n";
 
-	printf("目标IP地址为:%d.%d.%d.%d \t 端口号为:%d \n\n", DEST_IP_ADDR0, DEST_IP_ADDR1,
+	while(DHCP_state != DHCP_ADDRESS_ASSIGNED);
+
+	printf("DEST IP:%d.%d.%d.%d \t PORT:%d \n\n", DEST_IP_ADDR0, DEST_IP_ADDR1,
 			DEST_IP_ADDR2, DEST_IP_ADDR3, DEST_PORT);
 
 	while (1)
@@ -193,9 +201,6 @@ void StartTaskTcp(void const * argument)
 		}
 		printf("Connect successful!\n");
 		netconn_getaddr(conn, &ipaddr2, &LOCAL_PORT, 1);
-		printf("\r\nDHCP分配的IP为%d.%d.%d.%d\r\n", (ipaddr2.addr >> 0) & 0xff,
-				(ipaddr2.addr >> 8) & 0xff, (ipaddr2.addr >> 16) & 0xff,
-				(ipaddr2.addr >> 24) & 0xff);
 		while (1)
 		{
 			ret = netconn_write(conn, send_buf, sizeof(send_buf), 0);

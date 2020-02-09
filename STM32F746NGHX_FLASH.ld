@@ -63,6 +63,10 @@ MEMORY
 {
   RAM    (xrw)    : ORIGIN = 0x20000000,   LENGTH = 320K
   FLASH    (rx)    : ORIGIN = 0x8000000,   LENGTH = 1024K
+  Memory_B1(xrw)   : ORIGIN = 0x2004C000,  LENGTH = 0x80
+  Memory_B2(xrw)   : ORIGIN = 0x2004C080,  LENGTH = 0x80
+  Memory_B3(xrw)   : ORIGIN = 0x2004C100,  LENGTH = 0x17d0 
+  Memory_B4(xrw)   : ORIGIN = 0x2004D8D0,  LENGTH = 0x17d0
 }
 
 /* Sections */
@@ -197,4 +201,9 @@ SECTIONS
   }
 
   .ARM.attributes 0 : { *(.ARM.attributes) }
+  
+  .RxDecripSection : { *(.RxDescripSection) } >Memory_B1
+  .TxDescripSection : { *(.TxDescripSection) } >Memory_B2
+  .RxarraySection : { *(.RxBUF) } >Memory_B3
+  .TxarraySection : { *(.TxBUF) } >Memory_B4 
 }
