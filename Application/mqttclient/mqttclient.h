@@ -9,7 +9,4 @@
 #define MQTTCLIENT_MQTTCLIENT_H_
 
 
-void example_do_connect(mqtt_client_t *client);
-void example_publish(mqtt_client_t *client, void *arg);
-
 #endif /* MQTTCLIENT_MQTTCLIENT_H_ */

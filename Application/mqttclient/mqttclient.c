@@ -194,99 +194,99 @@ static void mqtt_pub_request_cb(void *arg, err_t result)
 	}
 }
 
-void StartTaskTcpClient(void const *argument)
-{
-	/* USER CODE BEGIN StartTaskTcp */
-	struct netconn *conn;
-	int ret;
-	ip4_addr_t ipaddr;
-	ip4_addr_t ipaddr2;
-	uint8_t DEST_IP_ADDR0 = 192;
-	uint8_t DEST_IP_ADDR1 = 168;
-	uint8_t DEST_IP_ADDR2 = 1;
-	uint8_t DEST_IP_ADDR3 = 6;
-	uint16_t DEST_PORT = 8080;
-	uint16_t LOCAL_PORT;
-
-	uint8_t send_buf[] = "This is a TCP Client test...\r\n";
-
-	while (DHCP_state != DHCP_ADDRESS_ASSIGNED )
-		;
-
-	printf("DEST IP:%d.%d.%d.%d \t PORT:%d \n\n", DEST_IP_ADDR0, DEST_IP_ADDR1,
-			DEST_IP_ADDR2, DEST_IP_ADDR3, DEST_PORT);
-
-	while (1)
-	{
-		conn = netconn_new(NETCONN_TCP);
-		if (conn == NULL)
-		{
-			printf("creat conn failed!\n");
-			osDelay(10);
-			continue;
-		}
-		IP4_ADDR(&ipaddr, DEST_IP_ADDR0, DEST_IP_ADDR1, DEST_IP_ADDR2,
-				DEST_IP_ADDR3);
-		ret = netconn_connect(conn, &ipaddr, DEST_PORT);
-
-		if (ret == -1)
-		{
-			printf("Connect failed!\n");
-			netconn_close(conn);
-			continue;
-		}
-		printf("Connect successful!\n");
-		netconn_getaddr(conn, &ipaddr2, &LOCAL_PORT, 1);
-		while (1)
-		{
-			ret = netconn_write(conn, send_buf, sizeof(send_buf), 0);
-			osDelay(1000);
-		}
-	}
-	/* USER CODE END StartTaskTcp */
-}
-void StartTaskTcpServer(void const *argument)
-{
-	struct netconn *conn, *newconn;
-	err_t err;
-	LWIP_UNUSED_ARG(argument);
-
-	while (DHCP_state != DHCP_ADDRESS_ASSIGNED )
-		;
-#if LWIP_IPV6
-	conn = netconn_new(NETCONN_TCP_IPV6);
-	netconn_bind(conn,IP6_ADDR_ANY,5001);
-#else
-	conn = netconn_new(NETCONN_TCP);
-	netconn_bind(conn, IP_ADDR_ANY, 5001);
-#endif
-	LWIP_ERROR("tcpecho: invalid conn", (conn != NULL), return;);
-
-	netconn_listen(conn);
-	while (1)
-	{
-		err = netconn_accept(conn, &newconn);
-		if (err == ERR_OK)
-		{
-			struct netbuf *buf;
-			void *data;
-			u16_t len;
-			while ((err = netconn_recv(newconn, &buf)) == ERR_OK)
-			{
-				do
-				{
-					netbuf_data(buf, &data, &len);
-					err = netconn_write(newconn, data, len, NETCONN_COPY);
-					if (err != ERR_OK)
-					{
-						printf("tcpecho: netconn write:error \"%s\n",
-								lwip_strerr(err));
-					}
-				} while (netbuf_next(buf) >= 0);
-				netbuf_delete(buf);
-			}
-			netconn_close(newconn);
-			netconn_delete(newconn);
-		}
-	}
-}
+//void StartTaskTcpClient(void const *argument)
+//{
+//	/* USER CODE BEGIN StartTaskTcp */
+//	struct netconn *conn;
+//	int ret;
+//	ip4_addr_t ipaddr;
+//	ip4_addr_t ipaddr2;
+//	uint8_t DEST_IP_ADDR0 = 192;
+//	uint8_t DEST_IP_ADDR1 = 168;
+//	uint8_t DEST_IP_ADDR2 = 1;
+//	uint8_t DEST_IP_ADDR3 = 6;
+//	uint16_t DEST_PORT = 8080;
+//	uint16_t LOCAL_PORT;
+//
+//	uint8_t send_buf[] = "This is a TCP Client test...\r\n";
+//
+//	while (DHCP_state != DHCP_ADDRESS_ASSIGNED )
+//		;
+//
+//	printf("DEST IP:%d.%d.%d.%d \t PORT:%d \n\n", DEST_IP_ADDR0, DEST_IP_ADDR1,
+//			DEST_IP_ADDR2, DEST_IP_ADDR3, DEST_PORT);
+//
+//	while (1)
+//	{
+//		conn = netconn_new(NETCONN_TCP);
+//		if (conn == NULL)
+//		{
+//			printf("creat conn failed!\n");
+//			osDelay(10);
+//			continue;
+//		}
+//		IP4_ADDR(&ipaddr, DEST_IP_ADDR0, DEST_IP_ADDR1, DEST_IP_ADDR2,
+//				DEST_IP_ADDR3);
+//		ret = netconn_connect(conn, &ipaddr, DEST_PORT);
+//
+//		if (ret == -1)
+//		{
+//			printf("Connect failed!\n");
+//			netconn_close(conn);
+//			continue;
+//		}
+//		printf("Connect successful!\n");
+//		netconn_getaddr(conn, &ipaddr2, &LOCAL_PORT, 1);
+//		while (1)
+//		{
+//			ret = netconn_write(conn, send_buf, sizeof(send_buf), 0);
+//			osDelay(1000);
+//		}
+//	}
+//	/* USER CODE END StartTaskTcp */
+//}
+//void StartTaskTcpServer(void const *argument)
+//{
+//	struct netconn *conn, *newconn;
+//	err_t err;
+//	LWIP_UNUSED_ARG(argument);
+//
+//	while (DHCP_state != DHCP_ADDRESS_ASSIGNED )
+//		;
+//#if LWIP_IPV6
+//	conn = netconn_new(NETCONN_TCP_IPV6);
+//	netconn_bind(conn,IP6_ADDR_ANY,5001);
+//#else
+//	conn = netconn_new(NETCONN_TCP);
+//	netconn_bind(conn, IP_ADDR_ANY, 5001);
+//#endif
+//	LWIP_ERROR("tcpecho: invalid conn", (conn != NULL), return;);
+//
+//	netconn_listen(conn);
+//	while (1)
+//	{
+//		err = netconn_accept(conn, &newconn);
+//		if (err == ERR_OK)
+//		{
+//			struct netbuf *buf;
+//			void *data;
+//			u16_t len;
+//			while ((err = netconn_recv(newconn, &buf)) == ERR_OK)
+//			{
+//				do
+//				{
+//					netbuf_data(buf, &data, &len);
+//					err = netconn_write(newconn, data, len, NETCONN_COPY);
+//					if (err != ERR_OK)
+//					{
+//						printf("tcpecho: netconn write:error \"%s\n",
+//								lwip_strerr(err));
+//					}
+//				} while (netbuf_next(buf) >= 0);
+//				netbuf_delete(buf);
+//			}
+//			netconn_close(newconn);
+//			netconn_delete(newconn);
+//		}
+//	}
+//}
