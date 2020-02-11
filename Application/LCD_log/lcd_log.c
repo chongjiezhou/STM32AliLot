@@ -245,6 +245,7 @@ LCD_LOG_PUTCHAR
 
   sFONT *cFont = BSP_LCD_GetFont();
   uint32_t idx;
+  char *outch = &ch;
 
   if(LCD_Lock == DISABLE)
   {

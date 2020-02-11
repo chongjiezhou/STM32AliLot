@@ -8,5 +8,6 @@
 #ifndef MQTTCLIENT_MQTTCLIENT_H_
 #define MQTTCLIENT_MQTTCLIENT_H_
 
+void AliCloud_thread(void const *argument);
 
 #endif /* MQTTCLIENT_MQTTCLIENT_H_ */

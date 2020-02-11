@@ -14,6 +14,9 @@
 #include "lwip.h"
 #include "api.h"
 #include <string.h>
+#include "lcd_log.h"
+#include <stdlib.h>
+#include "lwip/netdb.h"
 
 #ifdef DYNAMIC_REGISTER
     char _product_key[IOTX_PRODUCT_KEY_LEN + 1]       = "a1ZETBPbycq";
@@ -22,11 +25,11 @@
     char _device_secret[IOTX_DEVICE_SECRET_LEN + 1]   = "";
 #else
 #ifdef DEVICE_MODEL_ENABLED
-char _product_key[IOTX_PRODUCT_KEY_LEN + 1] = "a1RIsMLz2BJ";
-char _product_secret[IOTX_PRODUCT_SECRET_LEN + 1] = "fSAF0hle6xL0oRWd";
-char _device_name[IOTX_DEVICE_NAME_LEN + 1] = "example1";
+char _product_key[IOTX_PRODUCT_KEY_LEN + 1] = "a1mlNt37cvj";
+char _product_secret[IOTX_PRODUCT_SECRET_LEN + 1] = "NZplJNuQJbvgJ6Pn";
+char _device_name[IOTX_DEVICE_NAME_LEN + 1] = "test002";
 char _device_secret[IOTX_DEVICE_SECRET_LEN + 1] =
-		"RDXf67itLqZCwdMCRrw0N5FHbv5D7jrE";
+		"Zuza56ZhI0eaBOEdydBw55xIz0leZOZI";
 #else
         char _product_key[IOTX_PRODUCT_KEY_LEN + 1]       = "a1MZxOdcBnO";
         char _product_secret[IOTX_PRODUCT_SECRET_LEN + 1] = "h4I4dneEFp7EImTv";
@@ -36,6 +39,15 @@ char _device_secret[IOTX_DEVICE_SECRET_LEN + 1] =
 #endif
 
 char _firmware_version[IOTX_FIRMWARE_VER_LEN] = "app-1.0.0-20180101.1000";
+
+typedef struct os_pool_cb
+{
+	void *pool;
+	uint8_t *markers;
+	uint32_t pool_sz;
+	uint32_t item_sz;
+	uint32_t currentIndex;
+} os_pool_cb_t;
 
 /**
   *
@@ -65,7 +77,7 @@ char _firmware_version[IOTX_FIRMWARE_VER_LEN] = "app-1.0.0-20180101.1000";
  */
 void HAL_Free(void *ptr)
 {
-	free(ptr);
+	vPortFree(ptr);
 	return;
 }
 
@@ -260,7 +272,7 @@ int HAL_GetProductSecret(char *product_secret)
  */
 void* HAL_Malloc(uint32_t size)
 {
-	return malloc(size);
+	return pvPortMalloc(size);
 }
 
 /**
@@ -291,11 +303,10 @@ void* HAL_Malloc(uint32_t size)
  */
 void* HAL_MutexCreate(void)
 {
-	osMutexId* AliMutexHandle;
-	AliMutexHandle = HAL_Malloc(sizeof(osMutexId));
+	osMutexId AliMutexHandle;
 	osMutexDef(AliMutex);
-	*AliMutexHandle = osMutexCreate(osMutex(AliMutex));
-	return (void*) AliMutexHandle;
+	AliMutexHandle = osMutexCreate(osMutex(AliMutex));
+	return (void *)AliMutexHandle;
 }
 
 /**
@@ -326,8 +337,8 @@ void* HAL_MutexCreate(void)
  */
 void HAL_MutexDestroy(void *mutex)
 {
-	osMutexId *AliMutexHandle = (osMutexId*) mutex;
-	osMutexRelease(AliMutexHandle);
+	osMutexId AliMutexHandle = (osMutexId) mutex;
+	osMutexDelete(AliMutexHandle);
 	return;
 }
 
@@ -359,6 +370,8 @@ void HAL_MutexDestroy(void *mutex)
  */
 void HAL_MutexLock(void *mutex)
 {
+	osMutexId AliMutexHandle = (osMutexId) mutex;
+	osMutexWait(AliMutexHandle, 0xffffffff);
 	return;
 }
 
@@ -390,6 +403,8 @@ void HAL_MutexLock(void *mutex)
  */
 void HAL_MutexUnlock(void *mutex)
 {
+	osMutexId AliMutexHandle = (osMutexId) mutex;
+	osMutexRelease(AliMutexHandle);
 	return;
 }
 
@@ -423,13 +438,17 @@ void HAL_MutexUnlock(void *mutex)
  */
 void HAL_Printf(const char *fmt, ...)
 {
+	char fmtstring[100] = "", ch, cnt = 0;
 	va_list args;
 
 	va_start(args, fmt);
-	vprintf(fmt, args);
+	vsprintf(fmtstring, fmt, args);
 	va_end(args);
 
-	printf(fmt);
+	while ((ch = fmtstring[cnt++]) != 0)
+	{
+		__io_putchar(ch);
+	}
 	return;
 }
 
@@ -653,16 +672,14 @@ void HAL_SleepMs(uint32_t ms)
  */
 int HAL_Snprintf(char *str, const int len, const char *fmt, ...)
 {
-	va_list args;
-	int rc;
+    va_list args;
+    int rc;
 
-	va_start(args, fmt);
-	rc = vsnprintf(str, len, fmt, args);
-	va_end(args);
-
-	return rc;
+    va_start(args, fmt);
+    rc = vsnprintf(str, len, fmt, args);
+    va_end(args);
+    return rc;
 }
-
 /**
   *
   * 函数 HAL_Srandom() 需要SDK的使用者针对SDK将运行的硬件平台填充实现, 供SDK调用
@@ -723,7 +740,6 @@ int HAL_TCP_Destroy(uintptr_t fd)
 	}
 	netconn_close((struct netconn*) fd);
 	netconn_delete((struct netconn*) fd);
-	HAL_Free((void*) fd);
 	return 0;
 }
 
@@ -876,10 +892,7 @@ int32_t HAL_TCP_Write(uintptr_t fd, const char *buf, uint32_t len,
  */
 uint64_t HAL_UptimeMs(void)
 {
-//	uint64_t time_ms;
-//	time_ms = (uint64_t) getRunTimeCounterValue();
-//	return time_ms;
-	return HAL_GetTick();
+    return (uint64_t)xTaskGetTickCount();
 }
 
 /**

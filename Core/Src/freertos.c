@@ -25,11 +25,12 @@
 #include "cmsis_os.h"
 
 /* Private includes ----------------------------------------------------------*/
-/* USER CODE BEGIN Includes */     
+/* USER CODE BEGIN Includes */
 #include "stm32746g_discovery.h"
 #include "stm32746g_discovery_lcd.h"
 #include "lcd_log.h"
 #include "app_ethernet.h"
+#include "mqttclient.h"
 #include "tim.h"
 /* USER CODE END Includes */
 
@@ -52,6 +53,7 @@
 /* USER CODE BEGIN Variables */
 extern uint32_t RUN_Time;
 extern struct netif gnetif;
+osThreadId AliCloudTaskHandle;
 /* USER CODE END Variables */
 osThreadId defaultTaskHandle;
 
@@ -60,13 +62,14 @@ osThreadId defaultTaskHandle;
 static void BSP_Config(void);
 /* USER CODE END FunctionPrototypes */
 
-void StartDefaultTask(void const * argument);
+void StartDefaultTask(void const *argument);
 
 extern void MX_LWIP_Init(void);
 void MX_FREERTOS_Init(void); /* (MISRA C 2004 rule 8.1) */
 
 /* GetIdleTaskMemory prototype (linked to static allocation support) */
-void vApplicationGetIdleTaskMemory( StaticTask_t **ppxIdleTaskTCBBuffer, StackType_t **ppxIdleTaskStackBuffer, uint32_t *pulIdleTaskStackSize );
+void vApplicationGetIdleTaskMemory(StaticTask_t **ppxIdleTaskTCBBuffer,
+		StackType_t **ppxIdleTaskStackBuffer, uint32_t *pulIdleTaskStackSize);
 
 /* Hook prototypes */
 void configureTimerForRunTimeStats(void);
@@ -102,40 +105,41 @@ void vApplicationGetIdleTaskMemory(StaticTask_t **ppxIdleTaskTCBBuffer,
 /* USER CODE END GET_IDLE_TASK_MEMORY */
 
 /**
-  * @brief  FreeRTOS initialization
-  * @param  None
-  * @retval None
-  */
-void MX_FREERTOS_Init(void) {
-  /* USER CODE BEGIN Init */
+ * @brief  FreeRTOS initialization
+ * @param  None
+ * @retval None
+ */
+void MX_FREERTOS_Init(void)
+{
+	/* USER CODE BEGIN Init */
 
-  /* USER CODE END Init */
+	/* USER CODE END Init */
 
-  /* USER CODE BEGIN RTOS_MUTEX */
+	/* USER CODE BEGIN RTOS_MUTEX */
 	/* add mutexes, ... */
-  /* USER CODE END RTOS_MUTEX */
+	/* USER CODE END RTOS_MUTEX */
 
-  /* USER CODE BEGIN RTOS_SEMAPHORES */
+	/* USER CODE BEGIN RTOS_SEMAPHORES */
 	/* add semaphores, ... */
-  /* USER CODE END RTOS_SEMAPHORES */
+	/* USER CODE END RTOS_SEMAPHORES */
 
-  /* USER CODE BEGIN RTOS_TIMERS */
+	/* USER CODE BEGIN RTOS_TIMERS */
 	/* start timers, add new ones, ... */
-  /* USER CODE END RTOS_TIMERS */
+	/* USER CODE END RTOS_TIMERS */
 
-  /* USER CODE BEGIN RTOS_QUEUES */
+	/* USER CODE BEGIN RTOS_QUEUES */
 	/* add queues, ... */
-  /* USER CODE END RTOS_QUEUES */
+	/* USER CODE END RTOS_QUEUES */
 
-  /* Create the thread(s) */
-  /* definition and creation of defaultTask */
-  osThreadDef(defaultTask, StartDefaultTask, osPriorityNormal, 0, 1024);
-  defaultTaskHandle = osThreadCreate(osThread(defaultTask), NULL);
+	/* Create the thread(s) */
+	/* definition and creation of defaultTask */
+	osThreadDef(defaultTask, StartDefaultTask, osPriorityNormal, 0, 1024);
+	defaultTaskHandle = osThreadCreate(osThread(defaultTask), NULL);
 
-  /* USER CODE BEGIN RTOS_THREADS */
+	/* USER CODE BEGIN RTOS_THREADS */
 	/* add threads, ... */
 
-  /* USER CODE END RTOS_THREADS */
+	/* USER CODE END RTOS_THREADS */
 
 }
 
@@ -146,24 +150,27 @@ void MX_FREERTOS_Init(void) {
  * @retval None
  */
 /* USER CODE END Header_StartDefaultTask */
-void StartDefaultTask(void const * argument)
+void StartDefaultTask(void const *argument)
 {
-  /* USER CODE BEGIN StartDefaultTask */
+	/* USER CODE BEGIN StartDefaultTask */
 	BSP_Config();
 	User_notification(&gnetif);
 
 #ifdef USE_DHCP
-	osThreadDef(DHCP, DHCP_thread, osPriorityNormal, 0, 256);
+	osThreadDef(DHCP, DHCP_thread, osPriorityAboveNormal, 0, 256);
 	osThreadCreate(osThread(DHCP), &gnetif);
+	while (DHCP_state != DHCP_ADDRESS_ASSIGNED )
+		;
 #endif
-
+	osThreadDef(AliCloud, AliCloud_thread, osPriorityNormal, 0, 10240);
+	AliCloudTaskHandle = osThreadCreate(osThread(AliCloud), NULL);
 	osThreadTerminate(NULL);
 	/* Infinite loop */
 	for (;;)
 	{
 		osDelay(1);
 	}
-  /* USER CODE END StartDefaultTask */
+	/* USER CODE END StartDefaultTask */
 }
 
 /* Private application code --------------------------------------------------*/

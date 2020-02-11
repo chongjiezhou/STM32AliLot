@@ -5,288 +5,184 @@
  *      Author: 13080
  */
 #include "mqttclient.h"
-#include "lwip.h"
-#include <mqtt.h>
-#include "main.h"
+#include "infra_config.h"
+#ifdef DEPRECATED_LINKKIT
+#include "solo.c"
+#else
+#include <stdio.h>
 #include <string.h>
+#include <stdlib.h>
+#include "infra_types.h"
+#include "infra_defs.h"
+#include "infra_compat.h"
+#include "infra_compat.h"
+#ifdef INFRA_MEM_STATS
+    #include "infra_mem_stats.h"
+#endif
+#include "dev_model_api.h"
+#include "dm_wrapper.h"
+#include "cJSON.h"
+#ifdef ATM_ENABLED
+    #include "at_api.h"
+#endif
+#include "dev_sign_api.h"
+#include "mqtt_api.h"
 
-ip_addr_t mqttSeverAddr;
-#define Sever_IP_ADDR0	192
-#define Sever_IP_ADDR1	168
-#define Sever_IP_ADDR2	192
-#define Sever_IP_ADDR3	168
+void* HAL_Malloc(uint32_t size);
+void HAL_Free(void *ptr);
+void HAL_Printf(const char *fmt, ...);
+int HAL_GetProductKey(char product_key[IOTX_PRODUCT_KEY_LEN + 1]);
+int HAL_GetDeviceName(char device_name[IOTX_DEVICE_NAME_LEN + 1]);
+int HAL_GetDeviceSecret(char device_secret[IOTX_DEVICE_SECRET_LEN]);
+uint64_t HAL_UptimeMs(void);
+int HAL_Snprintf(char *str, const int len, const char *fmt, ...);
 
-static void mqtt_connection_cb(mqtt_client_t *client, void *arg,
-		mqtt_connection_status_t status);
-static void mqtt_sub_request_cb(void *arg, err_t result);
-static void mqtt_incoming_publish_cb(void *arg, const char *topic,
-		u32_t tot_len);
-static void mqtt_incoming_data_cb(void *arg, const u8_t *data, u16_t len,
-		u8_t flags);
-static void mqtt_pub_request_cb(void *arg, err_t result);
-/*
- * 与服务器建立连接
- */
-void example_do_connect(mqtt_client_t *client)
+char PRODUCT_KEY[IOTX_PRODUCT_KEY_LEN + 1] =
+{ 0 };
+char PRODUCT_SECRET[IOTX_PRODUCT_SECRET_LEN + 1] =
+{ 0 };
+char DEVICE_NAME[IOTX_DEVICE_NAME_LEN + 1] =
+{ 0 };
+char DEVICE_SECRET[IOTX_DEVICE_SECRET_LEN + 1] =
+{ 0 };
+
+typedef struct
 {
-	struct mqtt_connect_client_info_t ci;
-	err_t err;
-	/* 设置一个空的客户端信息结构 */
-	memset(&ci, 0, sizeof(ci));
-	/* 最少的信息量作为客户标识符 */
-	ci.client_id = "lwip_test";
-	IP4_ADDR(&mqttSeverAddr, Sever_IP_ADDR0, Sever_IP_ADDR1, Sever_IP_ADDR2,
-			Sever_IP_ADDR3);
-	/* 启动客户端并连接到服务器 */
-	err = mqtt_client_connect(client, &mqttSeverAddr, MQTT_PORT,
-			mqtt_connection_cb, 0, &ci);
+	int master_devid;
+	int cloud_connected;
+	int master_initialized;
+} user_ctx_t;
 
-	if (err != ERR_OK)
+#define EXAMPLE_TRACE(fmt, ...)  \
+    do { \
+        HAL_Printf("%s|%03d :: ", __func__, __LINE__); \
+        HAL_Printf(fmt, ##__VA_ARGS__); \
+        HAL_Printf("%s", "\r\n"); \
+    } while(0)
+
+void Ali_message_arrive(void *pcontext, void *pclient,
+		iotx_mqtt_event_msg_pt msg)
+{
+	iotx_mqtt_topic_info_t *topic_info = (iotx_mqtt_topic_info_pt) msg->msg;
+
+	switch (msg->event_type)
 	{
-		printf("mqtt_connect return %d\n", err);
+	case IOTX_MQTT_EVENT_PUBLISH_RECEIVED:
+		/* print topic name and topic message */
+		EXAMPLE_TRACE("Message Arrived:");
+		EXAMPLE_TRACE("Topic  : %.*s", topic_info->topic_len,
+				topic_info->ptopic);
+		EXAMPLE_TRACE("Payload: %.*s", topic_info->payload_len,
+				topic_info->payload);
+		EXAMPLE_TRACE("\n");
+		break;
+	default:
+		break;
 	}
 }
 
-/*
- * 连接状态回调函数
- */
-static void mqtt_connection_cb(mqtt_client_t *client, void *arg,
-		mqtt_connection_status_t status)
+int Ali_subscribe(void *handle)
 {
-	err_t err;
+	int res = 0;
+	const char *fmt = "/%s/%s/user/inctest";
+	char *topic = NULL;
+	int topic_len = 0;
 
-	if (status == MQTT_CONNECT_ACCEPTED)
+	topic_len = strlen(fmt) + strlen(PRODUCT_KEY) + strlen(DEVICE_NAME) + 1;
+	topic = HAL_Malloc(topic_len);
+	if (topic == NULL)
 	{
-		printf("mqtt_connection_cb: Successfully connected\n");
+		EXAMPLE_TRACE("memory not enough");
+		return -1;
+	}
+	memset(topic, 0, topic_len);
+	HAL_Snprintf(topic, topic_len, fmt, PRODUCT_KEY, DEVICE_NAME);
 
-		/* 为传入的参数设置回调 */
-		mqtt_set_inpub_callback(client, mqtt_incoming_publish_cb,
-				mqtt_incoming_data_cb, arg);
+	res = IOT_MQTT_Subscribe(handle, topic, IOTX_MQTT_QOS0, Ali_message_arrive,
+	NULL);
+	if (res < 0)
+	{
+		EXAMPLE_TRACE("subscribe failed");
+		HAL_Free(topic);
+		return -1;
+	}
 
-		/* 订阅名为"subtopic" 的Qos级别为1的主题，调用mqtt_sub_request_cb并显示结果 */
-		err = mqtt_subscribe(client, "subtopic", 1, mqtt_sub_request_cb, arg);
+	HAL_Free(topic);
+	return 0;
+}
 
-		if (err != ERR_OK)
+int Ali_publish(void *handle)
+{
+	int res = 0;
+	const char *fmt = "/%s/%s/user/pub_test";
+	char *topic = NULL;
+	int topic_len = 0;
+	char *payload = "{\"message\":\"hello!\"}";
+
+	topic_len = strlen(fmt) + strlen(PRODUCT_KEY) + strlen(DEVICE_NAME) + 1;
+	topic = HAL_Malloc(topic_len);
+	if (topic == NULL)
+	{
+		EXAMPLE_TRACE("memory not enough");
+		return -1;
+	}
+	memset(topic, 0, topic_len);
+	HAL_Snprintf(topic, topic_len, fmt, PRODUCT_KEY, DEVICE_NAME);
+
+	res = IOT_MQTT_Publish_Simple(0, topic, IOTX_MQTT_QOS0, payload,
+			strlen(payload));
+	if (res < 0)
+	{
+		EXAMPLE_TRACE("publish failed, res = %d", res);
+		HAL_Free(topic);
+		return -1;
+	}
+
+	HAL_Free(topic);
+	return 0;
+}
+
+void Ali_event_handle(void *pcontext, void *pclient, iotx_mqtt_event_msg_pt msg)
+{
+	EXAMPLE_TRACE("msg->event_type : %d", msg->event_type);
+}
+
+void AliCloud_thread(void const *argument)
+{
+	iotx_mqtt_param_t mqtt_params;
+	void *pclient = NULL;
+	int res = 0;
+	int loop_cnt = 0;
+
+	HAL_GetProductKey(PRODUCT_KEY);
+	HAL_GetDeviceName(DEVICE_NAME);
+	HAL_GetDeviceSecret(DEVICE_SECRET);
+
+	EXAMPLE_TRACE("mqtt example\n");
+
+	memset(&mqtt_params, 0, sizeof(iotx_mqtt_param_t));
+	mqtt_params.handle_event.h_fp = Ali_event_handle;
+
+	do
+	{
+		pclient = IOT_MQTT_Construct(&mqtt_params);
+		EXAMPLE_TRACE("MQTT construct failed\n");
+	} while (NULL == pclient);
+
+	res = Ali_subscribe(pclient);
+	if (res < 0)
+	{
+		IOT_MQTT_Destroy(&pclient);
+		return;
+	}
+	while (1)
+	{
+		if (0 == loop_cnt % 20)
 		{
-			printf("mqtt_subscribe return:%d\n", err);
+			Ali_publish(pclient);
 		}
-	}
-	else
-	{
-		printf("mqtt_connection_cb:Disconnected,reason: %d\n", status);
-		/* 重新连接 */
-		example_do_connect(client);
+		IOT_MQTT_Yield(pclient, 200);
+		loop_cnt++;
 	}
 }
-
-/*
- * 订阅失败回调函数
- */
-static void mqtt_sub_request_cb(void *arg, err_t result)
-{
-	/* 为了简单起见，只需在此处打印结果代码，
-	 * 如果订阅失败，正常的行为是采取一些措施，例如
-	 * 通知用户，重试订阅或与服务器断开连接 */
-	printf("Subscribe result: %d\n", result);
-}
-
-static int inpub_id;
-/*
- * 接收到订阅回调函数
- */
-static void mqtt_incoming_publish_cb(void *arg, const char *topic,
-		u32_t tot_len)
-{
-	printf("Incoming publish at topic \" %s \" with total length %u\r\n", topic,
-			(unsigned int) tot_len);
-
-	/* Decode topic string into a user defined reference */
-	if (strcmp(topic, "subtopic") == 0)
-	{
-		inpub_id = 0;
-	}
-	else if (topic[0] == 'A')
-	{
-		/* All topics starting with 'A' might be handled at the same way */
-		inpub_id = 1;
-	}
-	else
-	{
-		/* For all other topics */
-		inpub_id = 2;
-	}
-}
-
-/*
- * 接收到数据回调函数
- */
-static void mqtt_incoming_data_cb(void *arg, const u8_t *data, u16_t len,
-		u8_t flags)
-{
-	u8_t tempBuff[20] =
-	{ 0 };
-	u8_t i;
-	/* 对接收的数据进行拷贝 */
-	for (i = 0; i < len; i++)
-	{
-		tempBuff[i] = data[i];
-	}
-	tempBuff[i] = 0;
-
-	printf("Incoming publish payload with length %d,flags %u\n", len,
-			(unsigned int) flags);
-
-	if (flags & MQTT_DATA_FLAG_LAST)
-	{
-		if (inpub_id == 0)
-		{
-			/* Don't trust the publisher, check zero termination */
-			if (tempBuff[len] == 0)
-			{
-				printf("mqtt_incoming_data_cb: %s\n", (const char*) data);
-			}
-		}
-		else if (inpub_id == 1)
-		{
-			/* Call an 'A' function... */
-		}
-		else
-		{
-			printf("mqtt_incoming_data_cb: Ignoring payload...\n");
-		}
-	}
-	else
-	{
-
-	}
-}
-
-/*
- * 向服务器发布信息
- */
-void example_publish(mqtt_client_t *client, void *arg)
-{
-	const char *pub_payload = "Hello,MQTT\r\n";
-	err_t err;
-	u8_t qos = 1;
-	u8_t retain = 0;
-
-	err = mqtt_publish(client, "pub_topic", pub_payload, strlen(pub_payload),
-			qos, retain, mqtt_pub_request_cb, arg);
-	if (err != ERR_OK)
-	{
-		printf("Publish err: %d.\r\n", err);
-	}
-	else
-	{
-		printf("Publish Success.\r\n");
-	}
-}
-
-/*
- * 发布结果回调函数
- */
-static void mqtt_pub_request_cb(void *arg, err_t result)
-{
-	if (result != ERR_OK)
-	{
-		printf("Publish result: %d\n", result);
-	}
-}
-
-//void StartTaskTcpClient(void const *argument)
-//{
-//	/* USER CODE BEGIN StartTaskTcp */
-//	struct netconn *conn;
-//	int ret;
-//	ip4_addr_t ipaddr;
-//	ip4_addr_t ipaddr2;
-//	uint8_t DEST_IP_ADDR0 = 192;
-//	uint8_t DEST_IP_ADDR1 = 168;
-//	uint8_t DEST_IP_ADDR2 = 1;
-//	uint8_t DEST_IP_ADDR3 = 6;
-//	uint16_t DEST_PORT = 8080;
-//	uint16_t LOCAL_PORT;
-//
-//	uint8_t send_buf[] = "This is a TCP Client test...\r\n";
-//
-//	while (DHCP_state != DHCP_ADDRESS_ASSIGNED )
-//		;
-//
-//	printf("DEST IP:%d.%d.%d.%d \t PORT:%d \n\n", DEST_IP_ADDR0, DEST_IP_ADDR1,
-//			DEST_IP_ADDR2, DEST_IP_ADDR3, DEST_PORT);
-//
-//	while (1)
-//	{
-//		conn = netconn_new(NETCONN_TCP);
-//		if (conn == NULL)
-//		{
-//			printf("creat conn failed!\n");
-//			osDelay(10);
-//			continue;
-//		}
-//		IP4_ADDR(&ipaddr, DEST_IP_ADDR0, DEST_IP_ADDR1, DEST_IP_ADDR2,
-//				DEST_IP_ADDR3);
-//		ret = netconn_connect(conn, &ipaddr, DEST_PORT);
-//
-//		if (ret == -1)
-//		{
-//			printf("Connect failed!\n");
-//			netconn_close(conn);
-//			continue;
-//		}
-//		printf("Connect successful!\n");
-//		netconn_getaddr(conn, &ipaddr2, &LOCAL_PORT, 1);
-//		while (1)
-//		{
-//			ret = netconn_write(conn, send_buf, sizeof(send_buf), 0);
-//			osDelay(1000);
-//		}
-//	}
-//	/* USER CODE END StartTaskTcp */
-//}
-//void StartTaskTcpServer(void const *argument)
-//{
-//	struct netconn *conn, *newconn;
-//	err_t err;
-//	LWIP_UNUSED_ARG(argument);
-//
-//	while (DHCP_state != DHCP_ADDRESS_ASSIGNED )
-//		;
-//#if LWIP_IPV6
-//	conn = netconn_new(NETCONN_TCP_IPV6);
-//	netconn_bind(conn,IP6_ADDR_ANY,5001);
-//#else
-//	conn = netconn_new(NETCONN_TCP);
-//	netconn_bind(conn, IP_ADDR_ANY, 5001);
-//#endif
-//	LWIP_ERROR("tcpecho: invalid conn", (conn != NULL), return;);
-//
-//	netconn_listen(conn);
-//	while (1)
-//	{
-//		err = netconn_accept(conn, &newconn);
-//		if (err == ERR_OK)
-//		{
-//			struct netbuf *buf;
-//			void *data;
-//			u16_t len;
-//			while ((err = netconn_recv(newconn, &buf)) == ERR_OK)
-//			{
-//				do
-//				{
-//					netbuf_data(buf, &data, &len);
-//					err = netconn_write(newconn, data, len, NETCONN_COPY);
-//					if (err != ERR_OK)
-//					{
-//						printf("tcpecho: netconn write:error \"%s\n",
-//								lwip_strerr(err));
-//					}
-//				} while (netbuf_next(buf) >= 0);
-//				netbuf_delete(buf);
-//			}
-//			netconn_close(newconn);
-//			netconn_delete(newconn);
-//		}
-//	}
-//}
+#endif

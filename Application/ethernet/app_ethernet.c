@@ -124,10 +124,9 @@ void DHCP_thread(void const * argument)
       {
         if (dhcp_supplied_address(netif))
         {
-          DHCP_state = DHCP_ADDRESS_ASSIGNED;
-
           sprintf((char *)iptxt, "%s", ip4addr_ntoa((const ip4_addr_t *)&netif->ip_addr));
           LCD_UsrLog ("IP address assigned by a DHCP server: %s\n", iptxt);
+          DHCP_state = DHCP_ADDRESS_ASSIGNED;
         }
         else
         {
