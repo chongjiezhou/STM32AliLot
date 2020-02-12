@@ -37,7 +37,7 @@
 
 #include "lwip/netdb.h"
 
-#if LWIP_DNS && LWIP_SOCKET
+#if  LWIP_SOCKET
 
 #include "lwip/err.h"
 #include "lwip/mem.h"

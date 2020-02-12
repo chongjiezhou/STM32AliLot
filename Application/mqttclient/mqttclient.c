@@ -55,9 +55,9 @@ typedef struct
 
 #define EXAMPLE_TRACE(fmt, ...)  \
     do { \
-        HAL_Printf("%s|%03d :: ", __func__, __LINE__); \
+        /*HAL_Printf("%s|%03d :: ", __func__, __LINE__);*/ \
         HAL_Printf(fmt, ##__VA_ARGS__); \
-        HAL_Printf("%s", "\r\n"); \
+        HAL_Printf("%s", "\n"); \
     } while(0)
 
 void Ali_message_arrive(void *pcontext, void *pclient,
@@ -117,7 +117,7 @@ int Ali_publish(void *handle)
 	const char *fmt = "/%s/%s/user/pub_test";
 	char *topic = NULL;
 	int topic_len = 0;
-	char *payload = "{\"message\":\"hello!\"}";
+	char *payload = "\"message\":\"Ali,hello!\"";
 
 	topic_len = strlen(fmt) + strlen(PRODUCT_KEY) + strlen(DEVICE_NAME) + 1;
 	topic = HAL_Malloc(topic_len);
@@ -144,7 +144,51 @@ int Ali_publish(void *handle)
 
 void Ali_event_handle(void *pcontext, void *pclient, iotx_mqtt_event_msg_pt msg)
 {
-	EXAMPLE_TRACE("msg->event_type : %d", msg->event_type);
+	switch(msg->event_type)
+	{
+	case IOTX_MQTT_EVENT_UNDEF:
+		EXAMPLE_TRACE("\nmsg->event_type : %s", "IOTX_MQTT_EVENT_UNDEF");
+		break;
+	case IOTX_MQTT_EVENT_DISCONNECT:
+		EXAMPLE_TRACE("\nmsg->event_type : %s", "IOTX_MQTT_EVENT_DISCONNECT");
+		break;
+	case IOTX_MQTT_EVENT_RECONNECT:
+		EXAMPLE_TRACE("\nmsg->event_type : %s", "IOTX_MQTT_EVENT_RECONNECT");
+		break;
+	case IOTX_MQTT_EVENT_SUBCRIBE_SUCCESS:
+		EXAMPLE_TRACE("\nmsg->event_type : %s", "IOTX_MQTT_EVENT_SUBCRIBE_SUCCESS");
+		break;
+	case IOTX_MQTT_EVENT_SUBCRIBE_TIMEOUT:
+		EXAMPLE_TRACE("\nmsg->event_type : %s", "IOTX_MQTT_EVENT_SUBCRIBE_TIMEOUT");
+		break;
+	case IOTX_MQTT_EVENT_SUBCRIBE_NACK:
+		EXAMPLE_TRACE("\nmsg->event_type : %s", "IOTX_MQTT_EVENT_SUBCRIBE_NACK");
+		break;
+	case IOTX_MQTT_EVENT_UNSUBCRIBE_SUCCESS:
+		EXAMPLE_TRACE("\nmsg->event_type : %s", "IOTX_MQTT_EVENT_UNSUBCRIBE_SUCCESS");
+		break;
+	case IOTX_MQTT_EVENT_UNSUBCRIBE_TIMEOUT:
+		EXAMPLE_TRACE("\nmsg->event_type : %s", "IOTX_MQTT_EVENT_UNSUBCRIBE_TIMEOUT");
+		break;
+	case IOTX_MQTT_EVENT_UNSUBCRIBE_NACK:
+		EXAMPLE_TRACE("\nmsg->event_type : %s", "IOTX_MQTT_EVENT_UNSUBCRIBE_NACK");
+		break;
+	case IOTX_MQTT_EVENT_PUBLISH_SUCCESS:
+		EXAMPLE_TRACE("\nmsg->event_type : %s", "IOTX_MQTT_EVENT_PUBLISH_SUCCESS");
+		break;
+	case IOTX_MQTT_EVENT_PUBLISH_TIMEOUT:
+		EXAMPLE_TRACE("\nmsg->event_type : %s", "IOTX_MQTT_EVENT_PUBLISH_TIMEOUT");
+		break;
+	case IOTX_MQTT_EVENT_PUBLISH_NACK:
+		EXAMPLE_TRACE("\nmsg->event_type : %s", "IOTX_MQTT_EVENT_PUBLISH_NACK");
+		break;
+	case IOTX_MQTT_EVENT_PUBLISH_RECEIVED:
+		EXAMPLE_TRACE("\nmsg->event_type : %s", "IOTX_MQTT_EVENT_PUBLISH_RECEIVED");
+		break;
+	case IOTX_MQTT_EVENT_BUFFER_OVERFLOW:
+		EXAMPLE_TRACE("\nmsg->event_type : %s", "IOTX_MQTT_EVENT_BUFFER_OVERFLOW");
+		break;
+	}
 }
 
 void AliCloud_thread(void const *argument)
@@ -158,15 +202,12 @@ void AliCloud_thread(void const *argument)
 	HAL_GetDeviceName(DEVICE_NAME);
 	HAL_GetDeviceSecret(DEVICE_SECRET);
 
-	EXAMPLE_TRACE("mqtt example\n");
-
 	memset(&mqtt_params, 0, sizeof(iotx_mqtt_param_t));
 	mqtt_params.handle_event.h_fp = Ali_event_handle;
 
 	do
 	{
 		pclient = IOT_MQTT_Construct(&mqtt_params);
-		EXAMPLE_TRACE("MQTT construct failed\n");
 	} while (NULL == pclient);
 
 	res = Ali_subscribe(pclient);

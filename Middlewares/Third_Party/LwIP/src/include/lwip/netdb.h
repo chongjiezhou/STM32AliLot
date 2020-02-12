@@ -36,7 +36,7 @@
 
 #include "lwip/opt.h"
 
-#if LWIP_DNS && LWIP_SOCKET
+#if LWIP_SOCKET
 
 #include "lwip/arch.h"
 #include "lwip/inet.h"

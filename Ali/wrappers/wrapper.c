@@ -39,6 +39,7 @@ char _device_secret[IOTX_DEVICE_SECRET_LEN + 1] =
 #endif
 
 char _firmware_version[IOTX_FIRMWARE_VER_LEN] = "app-1.0.0-20180101.1000";
+#define HAL_Time_Left(a,b)  ((a>b)?a-b:(-1)*(b-a))
 
 typedef struct os_pool_cb
 {
@@ -306,7 +307,7 @@ void* HAL_MutexCreate(void)
 	osMutexId AliMutexHandle;
 	osMutexDef(AliMutex);
 	AliMutexHandle = osMutexCreate(osMutex(AliMutex));
-	return (void *)AliMutexHandle;
+	return (void*) AliMutexHandle;
 }
 
 /**
@@ -438,17 +439,10 @@ void HAL_MutexUnlock(void *mutex)
  */
 void HAL_Printf(const char *fmt, ...)
 {
-	char fmtstring[100] = "", ch, cnt = 0;
 	va_list args;
-
 	va_start(args, fmt);
-	vsprintf(fmtstring, fmt, args);
+	vprintf(fmt,args);
 	va_end(args);
-
-	while ((ch = fmtstring[cnt++]) != 0)
-	{
-		__io_putchar(ch);
-	}
 	return;
 }
 
@@ -672,13 +666,13 @@ void HAL_SleepMs(uint32_t ms)
  */
 int HAL_Snprintf(char *str, const int len, const char *fmt, ...)
 {
-    va_list args;
-    int rc;
+	va_list args;
+	int rc;
 
-    va_start(args, fmt);
-    rc = vsnprintf(str, len, fmt, args);
-    va_end(args);
-    return rc;
+	va_start(args, fmt);
+	rc = vsnprintf(str, len, fmt, args);
+	va_end(args);
+	return rc;
 }
 /**
   *
@@ -733,13 +727,20 @@ void HAL_Srandom(uint32_t seed)
  */
 int HAL_TCP_Destroy(uintptr_t fd)
 {
-	if (fd == (uintptr_t) NULL)
+	int rc;
+	/* Shutdown both send and receive operations. */
+	rc = shutdown((int ) fd, 2);
+	if (0 != rc)
 	{
-		HAL_Printf("fd is NULL\n");
-		return 0;
+		HAL_Printf("shutdown error\n");
+		return -1;
 	}
-	netconn_close((struct netconn*) fd);
-	netconn_delete((struct netconn*) fd);
+	rc = close((int ) fd);
+	if (0 != rc)
+	{
+		HAL_Printf("closesocket error\n");
+		return -1;
+	}
 	return 0;
 }
 
@@ -773,18 +774,81 @@ int HAL_TCP_Destroy(uintptr_t fd)
  */
 uintptr_t HAL_TCP_Establish(const char *host, uint16_t port)
 {
-	struct netconn *conn;
-	err_t err;
-	ip_addr_t dns_ip;
-	netconn_gethostbyname(host, &dns_ip);
-	conn = netconn_new(NETCONN_TCP);
-	err = netconn_connect(conn, &dns_ip, port);
-	if (err == -1)
+	struct addrinfo hints;
+	struct addrinfo *addrInfoList = NULL;
+	struct addrinfo *cur = NULL;
+	int fd = 0;
+	int rc = 0;
+	char service[6];
+	uint8_t dns_retry = 0;
+	memset(&hints, 0, sizeof(hints));
+//	HAL_Printf("establish tcp connectiong with server(host = '%s',port=[%u])\n",
+//			host, port);
+	hints.ai_family = AF_INET;
+	hints.ai_socktype = SOCK_STREAM;
+	hints.ai_protocol = IPPROTO_TCP;
+	sprintf(service, "%u", port);
+	while (dns_retry++ < 8)
 	{
-		HAL_Printf("Connect failed!\n");
-		netconn_close(conn);
+		rc = getaddrinfo(host, service, &hints, &addrInfoList);
+		if (rc != 0)
+		{
+//			HAL_Printf("getaddrinfo error[%d], res: %s, host: %s, port: %s\n",
+//					dns_retry, gai_strerror(rc), host, service);
+			osDelay(1);
+			continue;
+		}
+		else
+		{
+			break;
+		}
 	}
-	return (uintptr_t) conn;
+	if (rc != 0)
+	{
+		HAL_Printf("getaddrinfo error(%d), host = '%s', port = [%d]\n", rc,
+				host, port);
+		return (uintptr_t) (-1);
+	}
+
+	for (cur = addrInfoList; cur != NULL; cur = cur->ai_next)
+	{
+		if (cur->ai_family != AF_INET)
+		{
+			HAL_Printf("socket type error\n");
+			rc = -1;
+			continue;
+		}
+
+		fd = socket(cur->ai_family, cur->ai_socktype, cur->ai_protocol);
+		if (fd < 0)
+		{
+			HAL_Printf("create socket error\n");
+			rc = -1;
+			continue;
+		}
+
+		if (connect(fd, cur->ai_addr, cur->ai_addrlen) == 0)
+		{
+			rc = fd;
+			break;
+		}
+
+		close(fd);
+		HAL_Printf("connect error\n");
+		rc = -1;
+	}
+
+	if (-1 == rc)
+	{
+		printf("fail to establish tcp\n");
+	}
+	else
+	{
+		printf("success to establish tcp, fd=%d\n", rc);
+	}
+	freeaddrinfo(addrInfoList);
+
+	return (uintptr_t) rc;
 }
 
 /**
@@ -823,7 +887,79 @@ uintptr_t HAL_TCP_Establish(const char *host, uint16_t port)
  */
 int32_t HAL_TCP_Read(uintptr_t fd, char *buf, uint32_t len, uint32_t timeout_ms)
 {
-	return (int32_t) 1;
+	int ret, err_code, tcp_fd;
+	uint32_t len_recv;
+	uint64_t t_end, t_left;
+	fd_set sets;
+	struct timeval timeout;
+
+	t_end = getRunTimeCounterValue() + timeout_ms;
+	len_recv = 0;
+	err_code = 0;
+
+	if (fd >= FD_SETSIZE)
+	{
+		return -1;
+	}
+	tcp_fd = (int) fd;
+
+	do
+	{
+		t_left = HAL_Time_Left(t_end, getRunTimeCounterValue());
+		if (0 == t_left)
+		{
+			break;
+		}
+		FD_ZERO(&sets);
+		FD_SET(tcp_fd, &sets);
+
+		timeout.tv_sec = t_left / 1000;
+		timeout.tv_usec = (t_left % 1000) * 1000;
+
+		ret = select(tcp_fd + 1, &sets, NULL, NULL, &timeout);
+		if (ret > 0)
+		{
+			ret = recv(tcp_fd, buf + len_recv, len - len_recv, 0);
+			if (ret > 0)
+			{
+				len_recv += ret;
+			}
+			else if (0 == ret)
+			{
+				HAL_Printf("connection is closed\n");
+				err_code = -1;
+				break;
+			}
+			else
+			{
+				if (EINTR == errno)
+				{
+					continue;
+				}
+				HAL_Printf("recv fail\n");
+				err_code = -2;
+				break;
+			}
+		}
+		else if (0 == ret)
+		{
+			break;
+		}
+		else
+		{
+			if (EINTR == errno)
+			{
+				continue;
+			}
+			HAL_Printf("select-recv fail\n");
+			err_code = -2;
+			break;
+		}
+	} while ((len_recv < len));
+
+	/* priority to return data bytes if any data be received from TCP connection. */
+	/* It will get error code on next calling */
+	return (0 != len_recv) ? len_recv : err_code;
 }
 
 /**
@@ -862,7 +998,101 @@ int32_t HAL_TCP_Read(uintptr_t fd, char *buf, uint32_t len, uint32_t timeout_ms)
 int32_t HAL_TCP_Write(uintptr_t fd, const char *buf, uint32_t len,
 		uint32_t timeout_ms)
 {
-	return (int32_t) 1;
+	int ret, tcp_fd;
+	uint32_t len_sent;
+	uint64_t t_end, t_left;
+	fd_set sets;
+	int net_err = 0;
+
+	t_end = getRunTimeCounterValue() + timeout_ms;
+	len_sent = 0;
+	ret = 1; /* send one time if timeout_ms is value 0 */
+
+	if (fd >= FD_SETSIZE)
+	{
+		return -1;
+	}
+	tcp_fd = (int) fd;
+
+	do
+	{
+		t_left = HAL_Time_Left(t_end, getRunTimeCounterValue());
+
+		if (0 != t_left)
+		{
+			struct timeval timeout;
+
+			FD_ZERO(&sets);
+			FD_SET(tcp_fd, &sets);
+
+			timeout.tv_sec = t_left / 1000;
+			timeout.tv_usec = (t_left % 1000) * 1000;
+
+			ret = select(tcp_fd + 1, NULL, &sets, NULL, &timeout);
+			if (ret > 0)
+			{
+				if (0 == FD_ISSET(tcp_fd, &sets))
+				{
+					HAL_Printf("Should NOT arrive\n");
+					/* If timeout in next loop, it will not sent any data */
+					ret = 0;
+					continue;
+				}
+			}
+			else if (0 == ret)
+			{
+				HAL_Printf("select-write timeout %d\n", tcp_fd);
+				break;
+			}
+			else
+			{
+				if (EINTR == errno)
+				{
+					HAL_Printf("EINTR be caught\n");
+					continue;
+				}
+
+				HAL_Printf("select-write fail, ret = select() = %d\n", ret);
+				net_err = 1;
+				break;
+			}
+		}
+
+		if (ret > 0)
+		{
+			ret = send(tcp_fd, buf + len_sent, len - len_sent, 0);
+			if (ret > 0)
+			{
+				len_sent += ret;
+			}
+			else if (0 == ret)
+			{
+				HAL_Printf("No data be sent\n");
+			}
+			else
+			{
+				if (EINTR == errno)
+				{
+					HAL_Printf("EINTR be caught\n");
+					continue;
+				}
+
+				HAL_Printf("send fail, ret = send() = %d\n", ret);
+				net_err = 1;
+				break;
+			}
+		}
+	} while (!net_err && (len_sent < len)
+			&& (HAL_Time_Left(t_end, getRunTimeCounterValue()) > 0));
+
+	if (net_err)
+	{
+		return -1;
+	}
+	else
+	{
+		return len_sent;
+	}
 }
 
 /**
@@ -892,7 +1122,7 @@ int32_t HAL_TCP_Write(uintptr_t fd, const char *buf, uint32_t len,
  */
 uint64_t HAL_UptimeMs(void)
 {
-    return (uint64_t)xTaskGetTickCount();
+	return (uint64_t) xTaskGetTickCount();
 }
 
 /**
